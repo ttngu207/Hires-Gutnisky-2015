@@ -22,7 +22,7 @@ warnings.filterwarnings('ignore', module='pynwb')
 # Each NWBFile represent a session, thus for every session in acquisition.Session, we build one NWBFile
 default_nwb_output_dir = os.path.join('data', 'NWB 2.0')
 institution = 'Janelia Research Campus'
-related_publications = '10.7554/eLife.06619'
+related_publications = 'doi:10.7554/eLife.06619'
 
 # experiment description and keywords - from the abstract
 experiment_description = 'Intracellular and extracellular electrophysiology recordings performed on mouse barrel cortex in object locating task, where whisker movements and contacts with object were tracked to the milisecond precision.'
@@ -71,13 +71,12 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
         # acquisition - membrane potential
         mp, mp_timestamps = (intracellular.MembranePotential & cell).fetch1(
             'membrane_potential', 'membrane_potential_timestamps')
-        nwbfile.add_acquisition(pynwb.icephys.PatchClampSeries(name='PatchClampSeries',
-                                                               electrode=ic_electrode,
-                                                               unit='mV',
-                                                               conversion=1e-3,
-                                                               gain=1.0,
-                                                               data=mp,
-                                                               timestamps=mp_timestamps))
+        nwbfile.add_acquisition(pynwb.icephys.CurrentClampSeries(name='CurrentClampSeries',
+                                                                 electrode=ic_electrode,
+                                                                 conversion=1e-3,
+                                                                 gain=1.0,
+                                                                 data=mp,
+                                                                 timestamps=mp_timestamps))
 
         # acquisition - spike train
         spk, spk_timestamps = (intracellular.SpikeTrain & cell).fetch1(
@@ -87,7 +86,7 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
                                                                unit='a.u.',
                                                                conversion=1e1,
                                                                gain=1.0,
-                                                               data=spk,
+                                                               data=spk.astype(bool),
                                                                timestamps=spk_timestamps))
 
     # =============== Behavior ====================
@@ -104,19 +103,21 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
         behavior_descriptions = {attr: re.search(f'(?<={attr})(.*)#(.*)',
                                                  str(behavior.Behavior.heading)).groups()[-1].strip()
                                  for attr in behavior_data}
+        behavior_units = {k: re.match('\(.+\)', v)
+                          for k, v in behavior_descriptions.items()}
 
         for b_k, b_v in behavior_data.items():
             behav_acq.create_timeseries(name=b_k,
                                         description=behavior_descriptions[b_k],
-                                        unit='a.u.',
+                                        unit=behavior_units[b_k].group() if behavior_units[b_k] else 'a.u.',
                                         conversion=1.0,
-                                        data=b_v,
+                                        data=b_v.astype(bool) if 'binary array' in behavior_descriptions[b_k] else b_v,
                                         timestamps=timestamps)
 
     # =============== Photostimulation ====================
     photostim = ((stimulation.PhotoStimulation & session_key).fetch1()
-                       if len(stimulation.PhotoStimulation & session_key) == 1
-                       else None)
+                 if len(stimulation.PhotoStimulation & session_key) == 1
+                 else None)
     if photostim:
         photostim_device = (stimulation.PhotoStimDevice & photostim).fetch1()
         stim_device = nwbfile.create_device(name=photostim_device['device_name'])
@@ -133,7 +134,6 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
             nwbfile.add_stimulus(pynwb.ogen.OptogeneticSeries(
                 name='_'.join(['photostim_on', photostim['photostim_datetime'].strftime('%Y-%m-%d_%H-%M-%S')]),
                 site=stim_site,
-                resolution=0.0,
                 conversion=1e-3,
                 data=photostim['photostim_timeseries'],
                 starting_time=photostim['photostim_start_time'],

@@ -9,6 +9,7 @@ import numpy as np
 import scipy.io as sio
 import datajoint as dj
 from tqdm import tqdm
+from collections.abc import Iterable
 
 from . import reference, subject, utilities
 
@@ -107,23 +108,24 @@ class TrialSet(dj.Imported):
         else:
             trial_idx = np.array([sess_data.trialIds[tr] for tr in (sess_data.timeSeriesArrayHash.value[0].trial - 1)])
 
-        for idx, trial_id in tqdm(enumerate(sess_data.trialIds)):
+        for idx, trial_id in tqdm(enumerate(set(trial_idx))):
             key['trial_id'] = int(trial_id)
             key['start_time'] = time_stamps[np.where(
                 sess_data.timeSeriesArrayHash.value[1].trial == int(trial_id))[0][0]]
             key['stop_time'] = min(time_stamps[np.where(
                 sess_data.timeSeriesArrayHash.value[1].trial == int(trial_id))[0][-1]], time_stamps[-1])
             key['trial_response'] = sess_data.trialTypeStr[np.where(sess_data.trialTypeMat[:-1, idx] == 1)[0][0]]
-            key['trial_stim_present'] = int(sess_data.trialTypeMat[-1, idx] == 1)  # why DJ throws int type error for bool??
+            key['trial_stim_present'] = int(sess_data.trialTypeMat[-1, idx] == 1)
             key['trial_type'] = sess_data.trialPropertiesHash.value[-1][idx]
             key['pole_position'] = sess_data.trialPropertiesHash.value[0][idx] * 0.0992  # convert to micron here (0.0992 microns / microstep)
             self.Trial.insert1(key, ignore_extra_fields=True)
             # ======== Now add trial event timing to the EventTime part table ====
+            trial_lick_times = lick_times[idx] if isinstance(lick_times[idx], Iterable) else np.array([lick_times[idx]])
             event_dict = dict(trial_start=0,
                               trial_stop=key['stop_time'] - key['start_time'],
                               pole_in=pole_in_times[idx],
                               pole_out=pole_out_times[idx],
-                              first_lick=lick_times[idx][0] if len(lick_times[idx]) > 0 else np.nan)
+                              first_lick=trial_lick_times[0] if len(trial_lick_times) > 0 else np.nan)
             self.EventTime.insert((dict(key, trial_event=k, event_time=v)
-                                       for k, v in event_dict.items()),
-                                      ignore_extra_fields=True)
+                                   for k, v in event_dict.items()),
+                                  ignore_extra_fields=True)

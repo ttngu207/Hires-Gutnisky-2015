@@ -78,16 +78,18 @@ class SpikeTrain(dj.Imported):
         ephys_data = sess_data.timeSeriesArrayHash.value[1].valueMatrix[1, :] * time_conversion_factor
         time_stamps = sess_data.timeSeriesArrayHash.value[1].time * time_conversion_factor
 
+        ephys_data = (ephys_data
+                      if not isinstance(ephys_data, sparse.csc_matrix)
+                      else np.asarray(ephys_data.todense()).flatten())
+
         # Account for 10ms whisker trial time offset in SAH recordings and different time format between SAH & JY recordings.
-        if sess_data_file.as_posix().find('JY'):
+        if sess_data_file.as_posix().find('JY') != -1:
             ephys_data = np.hstack([ephys_data[5:], [0, 0, 0, 0, 0]])
-        elif sess_data_file.as_posix().find('AH'):
+        elif sess_data_file.as_posix().find('AH') != -1:
             ephys_data = np.hstack([ephys_data[4:], [0, 0, 0, 0]])
             time_stamps = time_stamps - 0.01
 
-        key['spike_train'] = (ephys_data
-                              if not isinstance(ephys_data, sparse.csc_matrix)
-                              else np.asarray(ephys_data.todense()).flatten())
+        key['spike_train'] = ephys_data.astype(bool)
         key['spike_timestamps'] = time_stamps
 
         self.insert1(key)
